@@ -20,7 +20,15 @@ def get_keycloak(username: str, password: str) -> str:
     r.raise_for_status()
     return r.json()["access_token"]
 
-def download_tiles(username: str, password: str, bbox: str, start_date: str, end_date: str, cloud_cover: float, download_path: str):
+def download_tiles(username: str, 
+                   password: str, 
+                   bbox: str, 
+                   start_date: str, 
+                   end_date: str, 
+                   download_path: str,
+                   download_limit: int = -1,
+                   cloud_cover: float = 100.0) -> None:
+    
     bbox_coords = list(map(float, bbox.split()))
     ft = f"POLYGON(({bbox_coords[0]} {bbox_coords[1]}, {bbox_coords[0]} {bbox_coords[3]}, {bbox_coords[2]} {bbox_coords[3]}, {bbox_coords[2]} {bbox_coords[1]}, {bbox_coords[0]} {bbox_coords[1]}))"
     start_date = datetime.strptime(start_date, "%Y-%m-%d").strftime("%Y-%m-%d")
@@ -29,6 +37,7 @@ def download_tiles(username: str, password: str, bbox: str, start_date: str, end
     url = (
         f"https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter="
         f"Collection/Name eq '{data_collection}' and "
+        f"not contains(Name,'L1C') and "
         f"Attributes/OData.CSC.DoubleAttribute/any(att:att/Name eq 'cloudCover' and "
         f"att/OData.CSC.DoubleAttribute/Value le {cloud_cover}) and " 
         f"OData.CSC.Intersects(area=geography'SRID=4326;{ft}') and "
@@ -51,27 +60,38 @@ def download_tiles(username: str, password: str, bbox: str, start_date: str, end
             keycloak_token = get_keycloak(username, password)
             session.headers.update({"Authorization": f"Bearer {keycloak_token}"})
 
+            download_count = 0
             for _, feat in productDF.iterrows():
+                if download_limit != -1 and download_count >= download_limit:
+                    break
+
                 try:
                     product_id = feat["Id"]
                     product_name = feat["Name"]
                     identifier = feat["identifier"]
                     download_url = f"https://catalogue.dataspace.copernicus.eu/odata/v1/Products({product_id})/$value"
                     response = session.get(download_url, allow_redirects=False)
-                    
                     while response.status_code in (301, 302, 303, 307):
                         download_url = response.headers["Location"]
                         response = session.get(download_url, allow_redirects=False)
-
                     file_response = session.get(download_url, verify=False, allow_redirects=True)
-                    with open(os.path.join(download_path, f"{identifier}.zip"), "wb") as f:
+                    file_path = os.path.join(download_path, f"{identifier}.zip")
+                    with open(file_path, "wb") as f:
                         f.write(file_response.content)
-                    print(f"Downloaded {product_name}")
+                    print(1)
+                    
+                    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                    if file_size_mb < 10:
+                        os.remove(file_path)
+                        print(f"Deleted {product_name} because it was smaller than 10 MB")
+                    else:
+                        print(f"Downloaded {product_name}")
+                    
+                    download_count += 1
                 except Exception as e:
                     print(f"Problem downloading {product_name}: {e}")
     else:
         print("No data found")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download Sentinel-2 tiles from Copernicus Open Access Hub.")
@@ -80,8 +100,9 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--bbox", type=str, required=True, help="Bounding box in format: min_lon min_lat max_lon max_lat")
     parser.add_argument("-s", "--start_date", type=str, required=True, help="Start date in format YYYY-MM-DD")
     parser.add_argument("-e", "--end_date", type=str, required=True, help="End date in format YYYY-MM-DD")
-    parser.add_argument("-c", "--cloud_cover", type=float, required=True, help="Start date in format YYYY-MM-DD")
+    parser.add_argument("-c", "--cloud_cover", type=float, default=100.0, help="Cloud coverage value threshold")
     parser.add_argument("-d", "--download_path", type=str, required=True, help="Path to store downloaded files")
+    parser.add_argument("-l", "--download_limit", type=int, default=-1, help="The maximum number of tiles to download")
 
     args = parser.parse_args()
     download_tiles(username=args.username,
@@ -90,4 +111,5 @@ if __name__ == "__main__":
                    start_date=args.start_date,
                    end_date=args.end_date,
                    cloud_cover=args.cloud_cover,
-                   download_path=args.download_path)
+                   download_path=args.download_path,
+                   download_limit=args.download_limit)
