@@ -1,4 +1,4 @@
-### How to Download the Data from the Copernicus Browser
+### How to Download the Data of Sentinel-2 from the Copernicus Browser
 
 ***Arguments to run the script:***
 
