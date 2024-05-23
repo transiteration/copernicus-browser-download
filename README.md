@@ -1,6 +1,7 @@
 ### How to Download the Data from the Copernicus Browser
 
 ***Arguments to run the script:***
+
 -u, --username: Copernicus username
 -p, --password: Copernicus password
 -b, --bbox: Bounding box in format min_lon min_lat max_lon max_lat
